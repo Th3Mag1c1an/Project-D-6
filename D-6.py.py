@@ -3,8 +3,9 @@ from pdf2image import convert_from_path
 import pytesseract
 import spacy
 from collections import Counter
-from fpdf import FPDF
 import re
+from docx import Document
+from docx.shared import Pt
 
 # Load French spaCy model
 nlp = spacy.load("fr_core_news_sm")
@@ -41,18 +42,47 @@ def extract_words_spacy(text):
             i += 1
     return words
 
+def save_docx_output(chapters_data, output_docx):
+    """
+    chapters_data = list of tuples: (chapter_number, [(word, count), ...])
+    """
+    doc = Document()
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Arial'
+    font.size = Pt(11)
+
+    for chapter_num, words_counts in chapters_data:
+        doc.add_heading(f'Chapter {chapter_num} Unique Words', level=1)
+        table = doc.add_table(rows=1, cols=4)
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'S.No'
+        hdr_cells[1].text = 'French Word'
+        hdr_cells[2].text = 'Occurrences'
+        hdr_cells[3].text = 'English Translation'
+
+        for i, (word, count) in enumerate(words_counts, 1):
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(i)
+            row_cells[1].text = word
+            row_cells[2].text = str(count)
+            row_cells[3].text = ''  # blank for translation
+
+        doc.add_paragraph()  # Space between chapters
+
+    doc.save(output_docx)
+    print(f"Saved output DOCX to '{output_docx}'")
+
 def main():
     input_pdf = input("Enter full path to input PDF file (e.g. C:\\Users\\You\\Desktop\\book.pdf): ").strip()
     if not os.path.isfile(input_pdf):
         print("Error: Input PDF file does not exist. Exiting.")
         return
 
-    output_folder = input("Enter full path to output folder where result PDF will be saved: ").strip()
+    output_folder = input("Enter full path to output folder where result DOCX will be saved: ").strip()
     if not os.path.isdir(output_folder):
         print("Error: Output folder does not exist. Exiting.")
         return
-
-    output_pdf = os.path.join(output_folder, "output_unique_words.pdf")
 
     try:
         print("Converting PDF pages to images...")
@@ -75,43 +105,18 @@ def main():
 
     print(f"Found {len(chapters)} chapters.")
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-
+    chapters_data = []
     for idx, chapter_text in enumerate(chapters, 1):
         print(f"Processing Chapter {idx}...")
-
         words = extract_words_spacy(chapter_text)
         word_counts = Counter(words)
-        unique_words = sorted(word_counts.keys())
+        unique_words = sorted(word_counts.items())  # list of (word, count)
+        chapters_data.append((idx, unique_words))
 
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(0, 10, f"Chapter {idx} Unique Words", ln=True)
-        pdf.ln(5)
+    output_docx = os.path.join(output_folder, "output_unique_words.docx")
+    save_docx_output(chapters_data, output_docx)
 
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(15, 10, "S.No", border=1)
-        pdf.cell(60, 10, "French Word", border=1)
-        pdf.cell(30, 10, "Occurrences", border=1)
-        pdf.cell(80, 10, "English Translation", border=1)
-        pdf.ln()
-
-        pdf.set_font("Arial", size=11)
-        for i, word in enumerate(unique_words, 1):
-            pdf.cell(15, 10, str(i), border=1)
-            pdf.cell(60, 10, word, border=1)
-            pdf.cell(30, 10, str(word_counts[word]), border=1)
-            pdf.cell(80, 10, "", border=1)  # Leave translation blank
-            pdf.ln()
-
-    pdf.add_page()
-
-    print(f"Saving output PDF to '{output_pdf}'...")
-    pdf.output(output_pdf)
-
-    print("Done! Check the output PDF for results.")
+    print("Done! Check the output DOCX for results.")
 
 if __name__ == "__main__":
     main()
