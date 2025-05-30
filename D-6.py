@@ -6,6 +6,9 @@ from collections import Counter
 import re
 from docx import Document
 from docx.shared import Pt
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from docx.shared import Inches
 
 # Load French spaCy model
 nlp = spacy.load("fr_core_news_sm")
@@ -55,11 +58,29 @@ def save_docx_output(chapters_data, output_docx):
     for chapter_num, words_counts in chapters_data:
         doc.add_heading(f'Chapter {chapter_num} Unique Words', level=1)
         table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'  # Ensure table borders are visible
+        table.autofit = False
         hdr_cells = table.rows[0].cells
         hdr_cells[0].text = 'S.No'
         hdr_cells[1].text = 'French Word'
         hdr_cells[2].text = 'Occurrences'
         hdr_cells[3].text = 'English Translation'
+
+        # Set column widths (in inches)
+        widths = [Inches(0.7), Inches(1.5), Inches(1.1), Inches(3.0)]
+        for i, width in enumerate(widths):
+            table.columns[i].width = width
+
+        # Helper to set cell padding and row height
+        def set_cell_format(cell):
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            # Set cell padding
+            for side in ('top', 'bottom', 'left', 'right'):
+                node = OxmlElement(f'w:{side}Margin')
+                node.set(qn('w:w'), '120')  # 120 twips = ~0.08 inch
+                node.set(qn('w:type'), 'dxa')
+                tcPr.append(node)
 
         for i, (word, count) in enumerate(words_counts, 1):
             row_cells = table.add_row().cells
@@ -67,6 +88,16 @@ def save_docx_output(chapters_data, output_docx):
             row_cells[1].text = word
             row_cells[2].text = str(count)
             row_cells[3].text = ''  # blank for translation
+            # Set row height (min height)
+            tr = table.rows[-1]._tr
+            trPr = tr.get_or_add_trPr()
+            trHeight = OxmlElement('w:trHeight')
+            trHeight.set(qn('w:val'), '800')  # 800 twips = ~0.56 cm
+            trHeight.set(qn('w:hRule'), 'atLeast')
+            trPr.append(trHeight)
+            # Set cell padding for all cells in the row
+            for cell in row_cells:
+                set_cell_format(cell)
 
         doc.add_paragraph()  # Space between chapters
 
