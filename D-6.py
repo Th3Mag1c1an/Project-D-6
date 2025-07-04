@@ -9,6 +9,8 @@ from docx.shared import Pt
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Inches
+from PIL import Image
+import fitz  # PyMuPDF
 
 # Load French spaCy model
 nlp = spacy.load("fr_core_news_sm")
@@ -104,10 +106,92 @@ def save_docx_output(chapters_data, output_docx):
     doc.save(output_docx)
     print(f"Saved output DOCX to '{output_docx}'")
 
+def save_french_words_docx(chapters_data, output_docx):
+    """
+    chapters_data = list of tuples: (chapter_number, [(word, count), ...])
+    Creates a DOCX with only the French words, one per line, grouped by chapter.
+    """
+    doc = Document()
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Arial'
+    font.size = Pt(11)
+
+    for chapter_num, words_counts in chapters_data:
+        doc.add_heading(f'Chapter {chapter_num} French Words', level=1)
+        for word, _ in words_counts:
+            doc.add_paragraph(word)
+        doc.add_paragraph()  # Space between chapters
+
+    doc.save(output_docx)
+    print(f"Saved French words DOCX to '{output_docx}'")
+
+def get_images_from_folder(folder_path):
+    exts = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
+    image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(exts)]
+    image_files.sort()  # Optional: sort by filename
+    images = []
+    for img_file in image_files:
+        img_path = os.path.join(folder_path, img_file)
+        try:
+            img = Image.open(img_path)
+            images.append(img)
+        except Exception as e:
+            print(f"Could not open {img_path}: {e}")
+    return images
+
+def extract_text_from_pdf(pdf_path):
+    """
+    Try to extract text directly from a PDF using PyMuPDF (fitz).
+    Returns a list of strings, one per page.
+    """
+    text_pages = []
+    with fitz.open(pdf_path) as doc:
+        for page in doc:
+            text = page.get_text()
+            text_pages.append(text)
+    return text_pages
+
 def main():
-    input_pdf = input("Enter full path to input PDF file (e.g. C:\\Users\\You\\Desktop\\book.pdf): ").strip()
-    if not os.path.isfile(input_pdf):
-        print("Error: Input PDF file does not exist. Exiting.")
+    print("Choose input type:")
+    print("1. PDF file")
+    print("2. Folder of images")
+    input_type = input("Enter 1 for PDF or 2 for images: ").strip()
+
+    if input_type == '1':
+        input_pdf = input("Enter full path to input PDF file (e.g. C:\\Users\\You\\Desktop\\book.pdf): ").strip()
+        if not os.path.isfile(input_pdf):
+            print("Error: Input PDF file does not exist. Exiting.")
+            return
+        try:
+            print("Trying to extract text directly from PDF...")
+            text_pages = extract_text_from_pdf(input_pdf)
+            # Check if most pages have enough text (not just whitespace)
+            if sum(len(t.strip()) > 30 for t in text_pages) > 0.7 * len(text_pages):
+                print("PDF appears to be text-based. Using direct text extraction.")
+                pages = text_pages
+                is_text_based = True
+            else:
+                print("PDF appears to be image-based. Using OCR.")
+                pages = convert_from_path(input_pdf, dpi=600)
+                is_text_based = False
+        except Exception as e:
+            print(f"Error during PDF text extraction: {e}\nFalling back to OCR.")
+            pages = convert_from_path(input_pdf, dpi=600)
+            is_text_based = False
+    elif input_type == '2':
+        input_folder = input("Enter full path to folder containing images: ").strip()
+        if not os.path.isdir(input_folder):
+            print("Error: Input folder does not exist. Exiting.")
+            return
+        pages = get_images_from_folder(input_folder)
+        if not pages:
+            print("No images found in the folder. Exiting.")
+            return
+        print(f"Found {len(pages)} images.")
+        is_text_based = False
+    else:
+        print("Invalid input type. Exiting.")
         return
 
     output_folder = input("Enter full path to output folder where result DOCX will be saved: ").strip()
@@ -115,17 +199,13 @@ def main():
         print("Error: Output folder does not exist. Exiting.")
         return
 
-    try:
-        print("Converting PDF pages to images...")
-        pages = convert_from_path(input_pdf, dpi=600)
-    except Exception as e:
-        print(f"Error during PDF to image conversion: {e}")
-        return
-
-    print(f"Performing OCR on {len(pages)} pages...")
+    print(f"Processing {len(pages)} pages/images...")
     full_text = ""
     for i, page in enumerate(pages, 1):
-        text = pytesseract.image_to_string(page, lang="fra")
+        if is_text_based:
+            text = page
+        else:
+            text = pytesseract.image_to_string(page, lang="fra")
         full_text += text + "\n"
 
     print("Splitting text into chapters...")
@@ -146,6 +226,10 @@ def main():
 
     output_docx = os.path.join(output_folder, "output_unique_words.docx")
     save_docx_output(chapters_data, output_docx)
+
+    # Save French words only DOCX
+    output_french_docx = os.path.join(output_folder, "output_french_words_only.docx")
+    save_french_words_docx(chapters_data, output_french_docx)
 
     print("Done! Check the output DOCX for results.")
 
