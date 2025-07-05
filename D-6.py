@@ -11,6 +11,8 @@ from docx.oxml import OxmlElement
 from docx.shared import Inches
 from PIL import Image
 import fitz  # PyMuPDF
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
 
 # Load French spaCy model
 nlp = spacy.load("fr_core_news_sm")
@@ -126,6 +128,51 @@ def save_french_words_docx(chapters_data, output_docx):
     doc.save(output_docx)
     print(f"Saved French words DOCX to '{output_docx}'")
 
+def save_french_words_excel(chapters_data, output_xlsx):
+    """
+    chapters_data = list of tuples: (chapter_number, [(word, count), ...])
+    Creates an Excel file with French words, one per row, grouped by chapter.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "French Words"
+    
+    # Set up headers
+    ws['A1'] = "Chapter"
+    ws['B1'] = "French Word"
+    ws['C1'] = "Occurrences"
+    
+    # Style the headers
+    header_font = Font(bold=True)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Add data
+    row = 2
+    for chapter_num, words_counts in chapters_data:
+        for word, count in words_counts:
+            ws[f'A{row}'] = f"Chapter {chapter_num}"
+            ws[f'B{row}'] = word
+            ws[f'C{row}'] = count
+            row += 1
+    
+    # Auto-adjust column widths
+    for column in ws.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+        ws.column_dimensions[column_letter].width = adjusted_width
+    
+    wb.save(output_xlsx)
+    print(f"Saved French words Excel file to '{output_xlsx}'")
+
 def get_images_from_folder(folder_path):
     exts = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
     image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(exts)]
@@ -194,7 +241,7 @@ def main():
         print("Invalid input type. Exiting.")
         return
 
-    output_folder = input("Enter full path to output folder where result DOCX will be saved: ").strip()
+    output_folder = input("Enter full path to output folder where result XLSX will be saved: ").strip()
     if not os.path.isdir(output_folder):
         print("Error: Output folder does not exist. Exiting.")
         return
@@ -224,14 +271,11 @@ def main():
         unique_words = sorted(word_counts.items())  # list of (word, count)
         chapters_data.append((idx, unique_words))
 
-    output_docx = os.path.join(output_folder, "output_unique_words.docx")
-    save_docx_output(chapters_data, output_docx)
+    # Save French words to Excel
+    output_french_excel = os.path.join(output_folder, "output_french_words_only.xlsx")
+    save_french_words_excel(chapters_data, output_french_excel)
 
-    # Save French words only DOCX
-    output_french_docx = os.path.join(output_folder, "output_french_words_only.docx")
-    save_french_words_docx(chapters_data, output_french_docx)
-
-    print("Done! Check the output DOCX for results.")
+    print("Done! Check the output Excel file for results.")
 
 if __name__ == "__main__":
     main()
